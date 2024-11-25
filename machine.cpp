@@ -20,7 +20,7 @@ void Machine::file(const string& filename){
 vector<string> Machine::split(const string& line){
     vector<string> parts;
     string part;
-    stringstream stream(line);
+    istringstream stream(line);
 
     while(stream >> part){
         parts.push_back(part);
@@ -37,21 +37,21 @@ void Machine::executeInstruction(const string& instruction){
 
     string op = parts[0];
     
-    for(int i = 0; i < op.length(); i++){
+    for(int i = 0; i < op.size(); i++){
         op[i] = toupper(op[i]);
     }
 
     if(op == "MOV"){
         int Rd = stoi(parts[1].substr(1));
+        string immStr = parts[2];
+        if(immStr[0] == '#'){
+            immStr = immStr.substr(1);
+        }
         try{
-            string immStr = parts[2];
-            if(immStr[0] == '#'){
-                immStr = immStr.substr(1);
-            }
-            uint32_t IMM = stoul(immStr, nullptr, 16);
+            uint32_t IMM = stoul(immStr, nullptr, 0);
             registers[Rd] = IMM;
-        }catch(const exception& e){
-            cout << "Invalid immediate value:" << parts[2] << endl;
+        }catch(const exception &e){
+            cout << "Invalid immediate value: " << parts[2] << endl;
         }
     }
     else if(op == "ADD" || op == "ADDS"){
@@ -59,7 +59,7 @@ void Machine::executeInstruction(const string& instruction){
         int Rn = stoi(parts[2].substr(1));
         int Rm = stoi(parts[3].substr(1));
 
-        uint32_t result = (uint32_t)registers[Rn] + registers[Rm];
+        uint32_t result = registers[Rn] + registers[Rm];
         registers[Rd] = result;
 
         if(op == "ADDS"){
@@ -71,7 +71,7 @@ void Machine::executeInstruction(const string& instruction){
         int Rn = stoi(parts[2].substr(1));
         int Rm = stoi(parts[3].substr(1));
 
-        uint32_t result = (uint32_t)registers[Rn] - registers[Rm];
+        uint32_t result = registers[Rn] - registers[Rm];
         registers[Rd] = result;
 
         if(op == "SUBS"){
@@ -81,8 +81,9 @@ void Machine::executeInstruction(const string& instruction){
     else if(op == "AND" || op == "ANDS"){
         int Rd = stoi(parts[1].substr(1));
         int Rn = stoi(parts[2].substr(1));
+        int Rm = stoi(parts[3].substr(1));
 
-        registers[Rd] = registers[Rd] & registers[Rn];
+        registers[Rd] = registers[Rn] & registers[Rm];
 
         if(op == "ANDS"){
             updateFlags(registers[Rd]);
@@ -91,8 +92,9 @@ void Machine::executeInstruction(const string& instruction){
     else if(op == "ORR" || op == "ORRS"){
         int Rd = stoi(parts[1].substr(1));
         int Rn = stoi(parts[2].substr(1));
+        int Rm = stoi(parts[3].substr(1));
 
-        registers[Rd] = registers[Rd] | registers[Rn];
+        registers[Rd] = registers[Rn] | registers[Rm];
 
         if(op == "ORRS"){
             updateFlags(registers[Rd]);
@@ -101,8 +103,9 @@ void Machine::executeInstruction(const string& instruction){
     else if(op == "XOR" || op == "XORS"){
         int Rd = stoi(parts[1].substr(1));
         int Rn = stoi(parts[2].substr(1));
+        int Rm = stoi(parts[3].substr(1));
 
-        registers[Rd] = registers[Rd] ^ registers[Rn];
+        registers[Rd] = registers[Rn] ^ registers[Rm];
 
         if(op == "XORS"){
             updateFlags(registers[Rd]);
@@ -112,7 +115,7 @@ void Machine::executeInstruction(const string& instruction){
         int Rn = stoi(parts[1].substr(1));
         int Rm = stoi(parts[2].substr(1));
 
-        uint32_t result = (uint32_t)registers[Rn] - registers[Rm];
+        uint32_t result = registers[Rn] - registers[Rm];
 
         updateFlagsForSub(registers[Rn], registers[Rm], result);
     }
@@ -129,7 +132,14 @@ void Machine::executeInstruction(const string& instruction){
         int Rn = stoi(parts[2].substr(1));
         int shift = stoi (parts[3].substr(1));
 
-        registers[Rd] = registers[Rn] >> shift;
+        if(shift > 0){
+            C = (registers[Rn] & (1 << (shift - 1))) != 0;
+            registers[Rd] = registers[Rn] >> shift;
+        }
+        else{
+            C = 0;
+            registers[Rd] = registers[Rn];
+        }
 
         if(op == "LSRS"){
             updateFlags(registers[Rd]);
@@ -140,14 +150,21 @@ void Machine::executeInstruction(const string& instruction){
         int Rn = stoi(parts[2].substr(1));
         int shift = stoi (parts[3].substr(1));
 
-        registers[Rd] = registers[Rn] << shift;
+        if(shift > 0){
+            C = (registers[Rn] & (1 << (32 - shift))) != 0;
+            registers[Rd] = registers[Rn] << shift;
+        }
+        else{
+            C = 0;
+            registers[Rd] = registers[Rn];
+        }
 
         if(op == "LSLS"){
             updateFlags(registers[Rd]);
         }
     }
     else{
-        cout << "Invalid." << instruction << endl;
+        cout << "Invalid instruction: " << instruction << endl;
     }
 
     printState(instruction);
@@ -157,7 +174,10 @@ void Machine::printState(const string& instruction){
     cout << instruction << endl;
     
     for(int i = 0; i < 8; i++){
-        cout << "R" << i << ":0x" << hex << uppercase << setw(8) << setfill('0') << registers[i] << " ";
+        cout << "R" << i << ":0x" << uppercase << setw(8) << setfill('0') << hex << registers[i] << " ";
+        if(i == 3){
+            cout << endl;
+        }
     }
 
     cout << endl;
@@ -165,38 +185,18 @@ void Machine::printState(const string& instruction){
 }
 
 void Machine::updateFlags(uint32_t result){
-    if(result == 0){
-        Z = 1;
-    }
-    else{
-        Z = 0;
-    }
-
-    if((result & 0x80000000) == 0){
-        N = 0;
-    }
-    else{
-        N = 1;
-    }
+    Z = (result == 0);
+    N = (result & 0x80000000) != 0;
 }
 
 void Machine::updateFlagsForAdd(uint32_t num1, uint32_t num2, uint32_t result){
     updateFlags(result);
-
-    uint64_t sum = (uint64_t)num1 + (uint64_t)num2;
-    C = (sum >> 32) & 1;
-    V = ((num1 ^ num2) & 0x80000000) == 0 && ((num1 ^ result) & 0x80000000) != 0;
+    C = (uint64_t(num1) + uint64_t(num2)) > 0xFFFFFFFF;
+    V = (((num1 ^ ~num2) & (num1 ^ result)) & 0x80000000) != 0;
 }
 
 void Machine::updateFlagsForSub(uint32_t num1, uint32_t num2, uint32_t result){
     updateFlags(result);
-
-    if(num1 >= num2){
-        C = 1;
-    }
-    else{
-        C = 0;
-    }
-
-    V = ((num1 ^ num2) & 0x80000000) != 0 && ((num1 ^ result) & 0x80000000) != 0;
+    C = (num1 >= num2);
+    V = (((num1 ^ num2) & (num1 ^ result)) & 0x80000000) != 0;
 }
